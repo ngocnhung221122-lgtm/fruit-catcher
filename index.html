@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hứng Trái Cây Vào Rổ (Bản Chậm Rãi)</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        body {
+            background: #1e1e2f;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        h1 {
+            margin-bottom: 10px;
+            color: #4caf50;
+            text-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+            font-size: 1.8rem;
+        }
+        .game-container {
+            position: relative;
+            width: 800px;
+            height: 450px;
+            border: 4px solid #444;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            overflow: hidden;
+            background: linear-gradient(to bottom, #a1c4fd, #c2e9fb);
+        }
+        canvas {
+            display: block;
+        }
+        .ui-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+            z-index: 10;
+        }
+        .ui-screen h2 {
+            font-size: 2.2rem;
+            margin-bottom: 15px;
+            color: #ffeb3b;
+        }
+        .ui-screen p {
+            font-size: 1.1rem;
+            margin-bottom: 25px;
+            line-height: 1.6;
+            color: #ddd;
+            max-width: 500px;
+        }
+        .btn {
+            background: #4caf50;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: 0.2s;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.4);
+        }
+        .btn:hover {
+            background: #43a047;
+            transform: scale(1.05);
+        }
+        .hidden {
+            display: none !important;
+        }
+        .score-board {
+            position: absolute;
+            top: 15px;
+            left: 20px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #333;
+            z-index: 5;
+            text-shadow: 1px 1px 2px rgba(255,255,255,0.8);
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Hứng Trái Cây Vào Rổ (Bản Chậm Rãi)</h1>
+    
+    <div class="game-container">
+        <div class="score-board">Điểm: <span id="scoreVal">0</span> | Mạng: <span id="livesVal">3</span></div>
+        
+        <!-- Màn hình hướng dẫn / Bắt đầu -->
+        <div id="startScreen" class="ui-screen">
+            <h2>HƯỚNG DẪN CHƠI</h2>
+            <p>
+                Sử dụng phím <b>Mũi Tên Trái / Phải</b> hoặc <b>A / D</b> để di chuyển chiếc rổ.<br>
+                Hứng các loại trái cây rơi xuống để ghi điểm.<br>
+                <i>Bản này đã được chỉnh tốc độ chậm rãi, nhẹ nhàng để bạn dễ chơi hơn!</i>
+            </p>
+            <button class="btn" onclick="startGame()">BẮT ĐẦU CHƠI</button>
+        </div>
+
+        <!-- Màn hình thua cuộc -->
+        <div id="gameOverScreen" class="ui-screen hidden">
+            <h2>HẾT TRÒ CHƠI!</h2>
+            <p id="finalScoreText">Bạn đã đạt được: 0 điểm</p>
+            <button class="btn" onclick="startGame()">CHƠI LẠI</button>
+        </div>
+
+        <canvas id="gameCanvas" width="800" height="450"></canvas>
+    </div>
+
+<script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const startScreen = document.getElementById("startScreen");
+    const gameOverScreen = document.getElementById("gameOverScreen");
+    const scoreVal = document.getElementById("scoreVal");
+    const livesVal = document.getElementById("livesVal");
+    const finalScoreText = document.getElementById("finalScoreText");
+
+    let gameRunning = false;
+    let score = 0;
+    let lives = 3;
+    let dropSpeedMultiplier = 1;
+
+    // Quản lý Âm thanh Web Audio API tích hợp
+    let audioCtx = null;
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    function playSound(type) {
+        if (!audioCtx) return;
+        let osc = audioCtx.createOscillator();
+        let gain = audioCtx.createGain();
+        
+        if (type === 'catch') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.1);
+        } else if (type === 'miss') {
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(80, audioCtx.currentTime + 0.2);
+            gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.2);
+        }
+    }
+
+    // Đối tượng Chiếc Rổ
+    let basket = {
+        x: 350,
+        y: 385,
+        width: 100,
+        height: 35,
+        speed: 7,
+        dx: 0,
+        draw() {
+            ctx.fillStyle = "#8d6e63";
+            ctx.beginPath();
+            ctx.roundRect(this.x, this.y, this.width, this.height, [0, 0, 10, 10]);
+            ctx.fill();
+
+            ctx.fillStyle = "#5d4037";
+            ctx.fillRect(this.x - 5, this.y - 6, this.width + 10, 8);
+        }
+    };
+
+    // Danh sách trái cây
+    let fruits = [];
+    let fruitTimer = 0;
+    let nextFruitTime = 100; // Tăng khoảng thời gian giữa các quả rơi để thưa hơn
+
+    const fruitTypes = [
+        { name: 'Táo', color: '#f44336', radius: 15, points: 10 },
+        { name: 'Cam', color: '#ff9800', radius: 14, points: 15 },
+        { name: 'Chuối', color: '#ffeb3b', radius: 16, points: 20 },
+        { name: 'Nho', color: '#9c27b0', radius: 12, points: 25 }
+    ];
+
+    function spawnFruit() {
+        let type = fruitTypes[Math.floor(Math.random() * fruitTypes.length)];
+        let fruit = {
+            x: Math.random() * (canvas.width - 40) + 20,
+            y: -20,
+            radius: type.radius,
+            color: type.color,
+            name: type.name,
+            points: type.points,
+            speed: (Math.random() * 0.8 + 1.2) // Đặt tốc độ rơi cơ bản rất chậm (từ 1.2 đến 2.0)
+        };
+        fruits.push(fruit);
+    }
+
+    // Điều khiển bàn phím
+    let keys = {};
+    window.addEventListener("keydown", (e) => {
+        keys[e.code] = true;
+    });
+    window.addEventListener("keyup", (e) => {
+        keys[e.code] = false;
+    });
+
+    function handleInput() {
+        if ((keys["ArrowLeft"] || keys["KeyA"]) && basket.x > 0) {
+            basket.x -= basket.speed;
+        }
+        if ((keys["ArrowRight"] || keys["KeyD"]) && basket.x + basket.width < canvas.width) {
+            basket.x += basket.speed;
+        }
+    }
+
+    function startGame() {
+        initAudio();
+        startScreen.classList.add("hidden");
+        gameOverScreen.classList.add("hidden");
+        
+        fruits = [];
+        score = 0;
+        lives = 3;
+        dropSpeedMultiplier = 1;
+        fruitTimer = 0;
+        nextFruitTime = 100;
+        basket.x = 350;
+        
+        scoreVal.innerText = score;
+        livesVal.innerText = lives;
+        gameRunning = true;
+        loop();
+    }
+
+    function gameOver() {
+        gameRunning = false;
+        finalScoreText.innerText = `Bạn đã đạt được: ${score} điểm!`;
+        gameOverScreen.classList.remove("hidden");
+    }
+
+    // Vòng lặp game chính
+    function loop() {
+        if (!gameRunning) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        handleInput();
+        basket.draw();
+
+        // Tần suất sinh trái cây thưa và dễ thở hơn
+        fruitTimer++;
+        if (fruitTimer >= nextFruitTime) {
+            spawnFruit();
+            fruitTimer = 0;
+            nextFruitTime = Math.max(50, 100 - Math.floor(score / 30));
+        }
+
+        for (let i = fruits.length - 1; i >= 0; i--) {
+            let f = fruits[i];
+            
+            // Tốc độ rơi được nhân với hệ số rất nhẹ nhàng
+            f.y += f.speed * dropSpeedMultiplier;
+
+            ctx.fillStyle = f.color;
+            ctx.beginPath();
+            ctx.arc(f.x, f.y, f.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = "#33691e";
+            ctx.fillRect(f.x - 2, f.y - f.radius - 4, 4, 5);
+
+            // Kiểm tra va chạm với rổ
+            if (
+                f.y + f.radius >= basket.y &&
+                f.x >= basket.x &&
+                f.x <= basket.x + basket.width &&
+                f.y - f.radius <= basket.y + basket.height
+            ) {
+                playSound('catch');
+                score += f.points;
+                scoreVal.innerText = score;
+                fruits.splice(i, 1);
+
+                // Tăng tốc độ tăng cực kỳ từ tốn theo điểm số để game không bị quá khó đột ngột
+                dropSpeedMultiplier = 1 + Math.floor(score / 150) * 0.1;
+                continue;
+            }
+
+            // Kiểm tra rớt đất
+            if (f.y > canvas.height) {
+                playSound('miss');
+                lives--;
+                livesVal.innerText = lives;
+                fruits.splice(i, 1);
+
+                if (lives <= 0) {
+                    gameOver();
+                    return;
+                }
+            }
+        }
+
+        requestAnimationFrame(loop);
+    }
+</script>
+
+</body>
+</html>
